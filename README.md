@@ -1,4 +1,4 @@
-# 📚 Literatura Gutendex (Será Trocada a API)
+# 📚 Literatura Gutendex 
 
 Aplicação Java com Spring Boot para catálogo de livros consumindo a API Gutendex (Project Gutenberg), persistindo dados em PostgreSQL com análise de estatísticas.
 
