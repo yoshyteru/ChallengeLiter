@@ -5,6 +5,7 @@ import com.exemplo.literatura.repository.AutorRepository;
 import com.exemplo.literatura.repository.LivroRepository;
 import com.exemplo.literatura.service.ConsumoApi;
 import com.exemplo.literatura.service.ConverteDados;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -12,19 +13,17 @@ import java.util.stream.Collectors;
 
 @Component
 public class Principal {
-
-    private final Scanner leitura = new Scanner(System.in);
-    private final ConsumoApi consumo = new ConsumoApi();
-    private final ConverteDados conversor = new ConverteDados();
-
-    private final LivroRepository livroRepository;
-
-    private final AutorRepository autorRepository;
-
-    public Principal(LivroRepository livroRepository, AutorRepository autorRepository) {
-        this.livroRepository = livroRepository;
-        this.autorRepository = autorRepository;
-    }
+    
+    private Scanner leitura = new Scanner(System.in);
+    private ConsumoApi consumo = new ConsumoApi();
+    private ConverteDados conversor = new ConverteDados();
+    private final String ENDERECO = "https://gutendex.com/books/";
+    
+    @Autowired
+    private LivroRepository livroRepository;
+    
+    @Autowired
+    private AutorRepository autorRepository;
 
     public void exibeMenu() {
         var opcao = -1;
@@ -41,13 +40,13 @@ public class Principal {
                     """;
             System.out.println(menu);
             System.out.print("Escolha uma opção: ");
-
+            
             try {
                 opcao = leitura.nextInt();
-                leitura.nextLine(); // limpa o buffer do enter
+                leitura.nextLine();
             } catch (InputMismatchException e) {
                 System.out.println("Opção inválida! Digite um número.");
-                leitura.nextLine(); // limpa entrada errada
+                leitura.nextLine();
                 continue;
             }
 
@@ -67,50 +66,49 @@ public class Principal {
     private void buscarLivroPorTitulo() {
         System.out.print("\nDigite o título do livro: ");
         var titulo = leitura.nextLine();
-
-        // Verifica se já existe no banco (DERIVED QUERY)
+        
+        // Verifica se já existe no banco
         Optional<Livro> livroExistente = livroRepository.findByTituloContainingIgnoreCase(titulo);
         if (livroExistente.isPresent()) {
             System.out.println("\nLivro já existe no banco de dados!");
             System.out.println(livroExistente.get());
             return;
         }
-
+        
         // Busca na API Gutendex
-        String ENDERECO = "https://gutendex.com/books/";
         var url = ENDERECO + "?search=" + titulo.replace(" ", "+");
         System.out.println("Buscando na API: " + url);
-
+        
         var json = consumo.obterDados(url);
         var resposta = conversor.obterDados(json, RespostaApi.class);
-
+        
         if (resposta.results() == null || resposta.results().isEmpty()) {
             System.out.println("Livro não encontrado na API!");
             return;
         }
-
-        // Pega o primeiro resultado da API
+        
+        // Pega o primeiro resultado
         DadosLivro dadosLivro = resposta.results().get(0);
         Livro livro = new Livro(dadosLivro);
-
+        
         // Trata o autor (pega só o primeiro)
         if (dadosLivro.autores() != null && !dadosLivro.autores().isEmpty()) {
-            DadoAutor dadosAutor = dadosLivro.autores().get(0);
-
-            // Verifica se autor já existe (DERIVED QUERY)
+            DadosAutor dadosAutor = dadosLivro.autores().get(0);
+            
+            // Busca ou cria autor
             Autor autor = autorRepository.findByNome(dadosAutor.nome())
                     .orElseGet(() -> {
-                        // Se não existe, cria e salva
                         Autor novoAutor = new Autor(dadosAutor);
                         return autorRepository.save(novoAutor);
                     });
-
+            
+            // Seta o autor no livro (já está salvo/manageado)
             livro.setAutor(autor);
         }
-
-        // Salva no banco
+        
+        // Salva apenas o livro
         livroRepository.save(livro);
-        System.out.println("\nLivro salvo com sucesso!");
+        System.out.println("\n✅ Livro salvo com sucesso!");
         System.out.println(livro);
     }
 
@@ -139,19 +137,18 @@ public class Principal {
         try {
             int ano = leitura.nextInt();
             leitura.nextLine();
-
-            // Usa DERIVED QUERY para buscar autores vivos no ano
+            
             List<Autor> autores = autorRepository
                     .findByAnoNascimentoLessThanEqualAndAnoFalecimentoGreaterThanEqual(ano, ano);
-
+            
             if (autores.isEmpty()) {
                 System.out.println("Nenhum autor vivo encontrado nesse ano.");
                 return;
             }
-
+            
             System.out.println("\n=== AUTORES VIVOS EM " + ano + " ===");
             autores.forEach(System.out::println);
-
+            
         } catch (InputMismatchException e) {
             System.out.println("Ano inválido! Digite um número.");
             leitura.nextLine();
@@ -161,38 +158,35 @@ public class Principal {
     private void listarLivrosPorIdioma() {
         System.out.print("\nDigite o idioma (ex: pt, en, es, fr): ");
         var idioma = leitura.nextLine();
-
-        // Usa DERIVED QUERY
+        
         List<Livro> livros = livroRepository.findByIdioma(idioma);
-
+        
         if (livros.isEmpty()) {
             System.out.println("Nenhum livro encontrado no idioma: " + idioma);
             return;
         }
-
+        
         System.out.println("\n=== LIVROS EM '" + idioma + "' ===");
         livros.forEach(System.out::println);
     }
 
     private void exibirEstatisticasPorIdioma() {
         System.out.println("\n=== ESTATÍSTICAS POR IDIOMA ===");
-
+        
         List<Livro> todosLivros = livroRepository.findAll();
-
+        
         if (todosLivros.isEmpty()) {
             System.out.println("Nenhum livro registrado para estatísticas.");
             return;
         }
-
-        // Usa Java Streams para agrupar e contar
+        
         Map<String, Long> estatisticas = todosLivros.stream()
                 .collect(Collectors.groupingBy(Livro::getIdioma, Collectors.counting()));
-
-        estatisticas.forEach((idioma, quantidade) ->
-                System.out.println("Idioma: " + idioma + " - Quantidade: " + quantidade));
-
-        // Usa DERIVED QUERIES para contagens específicas
-        System.out.println("\n--- Contagem específica (Derived Queries) ---");
+        
+        estatisticas.forEach((idioma, quantidade) -> 
+            System.out.println("Idioma: " + idioma + " - Quantidade: " + quantidade));
+        
+        System.out.println("\n--- Contagem específica ---");
         System.out.println("Livros em Português (pt): " + livroRepository.countByIdioma("pt"));
         System.out.println("Livros em Inglês (en): " + livroRepository.countByIdioma("en"));
         System.out.println("Livros em Espanhol (es): " + livroRepository.countByIdioma("es"));
